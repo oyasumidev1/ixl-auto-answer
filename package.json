@@ -1,0 +1,10 @@
+{
+  "name": "ixl-auto-answer",
+  "version": "1.3.2",
+  "private": true,
+  "description": "Configurable AI-assisted IXL practice userscript",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "test": "node --check ixl-auto-answer.user.js && node tests/protocol.test.cjs"
+  }
+}
