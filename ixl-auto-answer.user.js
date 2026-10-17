@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IXL Auto Answer
 // @namespace    https://github.com/oyasumidev1/ixl-auto-answer
-// @version      1.3.3
+// @version      1.3.4
 // @description  Configurable AI-assisted IXL practice automation.
 // @license      GPL-3.0-or-later
 // @author       oyasumidev1
@@ -91,6 +91,7 @@ For status answer selected_ids must be nonempty and unique. For status abstain s
   let key = GM_getValue('ixl-ai-key','');
   let running = false, busy = false, generation = 0, request = null;
   const completed = new Set();
+  let currentRound=null, roundSequence=0;
   const sleep = ms => new Promise(resolve=>setTimeout(resolve,ms));
   const normalize = s => String(s || '').replace(/\u200b/g,'').replace(/\s+/g,' ').trim();
   const visible = e => !!e.getClientRects().length && !e.closest('[hidden],[aria-hidden="true"]') && getComputedStyle(e).visibility !== 'hidden';
@@ -113,7 +114,7 @@ For status answer selected_ids must be nonempty and unique. For status abstain s
   section{width:340px;max-height:82vh;overflow:auto;background:#fff;border:1px solid #b5c8df;border-radius:12px;box-shadow:0 8px 32px #0003;padding:14px}
   header{display:flex;justify-content:space-between;align-items:center;font-size:16px;font-weight:700}label{display:block;margin:8px 0}input:not([type=checkbox]),select{box-sizing:border-box;width:100%;padding:7px;border:1px solid #bac6d5;border-radius:5px}button{padding:7px 10px;margin:4px 3px 4px 0;cursor:pointer;border:1px solid #bccbdc;border-radius:5px;background:#f2f6fb}button.primary{background:#1664c0;color:white}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;background:#f1f5fa;padding:9px}small{color:#596c80}textarea{width:100%;box-sizing:border-box;height:130px}summary{cursor:pointer}
   [hidden]{display:none!important}#fold{font-size:23px;line-height:1;border:0;background:transparent;padding:3px 7px;margin:0}#reopen{background:#1664c0;color:#fff;border:0;border-radius:24px;padding:10px 16px;box-shadow:0 4px 16px #0003}#quick-stop{background:#fff;color:#b42318;border-radius:24px}
-  </style><div id="launcher" hidden><button id="reopen" title="打开 IXL AI" aria-label="打开 IXL AI">IXL AI</button><button id="quick-stop" hidden>停止</button></div><section id="panel"><header>IXL · AI <small style="font-size:11px">v1.3.3</small><button id="fold" title="收起面板" aria-label="收起面板">×</button></header><div id="body">
+  </style><div id="launcher" hidden><button id="reopen" title="打开 IXL AI" aria-label="打开 IXL AI">IXL AI</button><button id="quick-stop" hidden>停止</button></div><section id="panel"><header>IXL · AI <small style="font-size:11px">v1.3.4</small><button id="fold" title="收起面板" aria-label="收起面板">×</button></header><div id="body">
   <small>选择 / 点选 / 分类 / 拖放 · 题目发送至所选 API</small>
   <details open><summary>API 设置</summary>
   <label>协议<select id="protocol"><option value="chat">OpenAI Chat Completions / 兼容接口</option><option value="responses">OpenAI Responses</option><option value="anthropic">Anthropic Messages</option></select></label>
@@ -218,7 +219,17 @@ For status answer selected_ids must be nonempty and unique. For status abstain s
     const {question_text,bold_texts}=readQuestionText(root);
     if(question_text.length<10 || question_text.length>30000) throw new Error('题干长度异常。');
     const payload={question_text,formatting:{bold_texts},...fields};
-    return {root,submit,controls,payload,signature:JSON.stringify({path:location.pathname,...payload}),...extra};
+    const signature=JSON.stringify({path:location.pathname,...payload});
+    const section=root.querySelector('[data-cy="question-section"]') || root;
+    const stamp=[...section.querySelectorAll('[data-practice-audio-timestamp]')].map(e=>e.getAttribute('data-practice-audio-timestamp')).join('|');
+    const round=identifyRound({root,section,stamp,signature});
+    return {root,submit,controls,payload,signature,round,...extra};
+  }
+  function identifyRound(snapshot) {
+    if(!currentRound || ['root','section','stamp','signature'].some(key=>currentRound[key]!==snapshot[key])) {
+      currentRound={...snapshot,id:++roundSequence};
+    }
+    return currentRound.id;
   }
   function capturePlacement(root) {
     const widgets=[...root.querySelectorAll('.dragAndDropContainer.interactive')].filter(visible);
@@ -277,7 +288,7 @@ For status answer selected_ids must be nonempty and unique. For status abstain s
   }
   function checkCurrent(old) {
     const fresh = capture();
-    if (fresh.signature !== old.signature || fresh.root !== old.root || !old.root.isConnected) throw new Error('请求期间题目已变化，本次答案作废。');
+    if (fresh.round !== old.round || fresh.signature !== old.signature || fresh.root !== old.root || !old.root.isConnected) throw new Error('请求期间题目已变化，本次答案作废。');
     return fresh;
   }
   function validate(raw,payload) {
@@ -504,7 +515,7 @@ For status answer selected_ids must be nonempty and unique. For status abstain s
     const q=capture();
     if(apply && q.payload.mode==='placement' && !owningComponent(q.cards[0].closest('.dragAndDropContainer'))) throw new Error('拖放接口未就绪，请刷新页面，再用“查看题目”确认。未发送 API 请求。');
     if(apply && q.kind==='text' && !owningWordView(q.controls[0])) throw new Error('正文点选接口未就绪，请刷新页面。未发送 API 请求。');
-    if(apply && completed.has(q.signature)) throw new Error('本轮已提交过相同题目，避免重复提交。');
+    if(apply && completed.has(q.round)) throw new Error('当前这一轮已提交，等待下一题后再试。');
     const payload={...q.payload,question_id:crypto.randomUUID()};
     debug(payload); log(`请求模型中…\n${new URL(c.url).origin}\n${payload.options.length} 个选项`);
     let raw=await callAPI(c,payload);
@@ -546,7 +557,8 @@ For status answer selected_ids must be nonempty and unique. For status abstain s
     if(q.payload.mode==='placement' && !placementCorrect(fresh,a)) throw new Error('卡片最终位置不一致，停止提交。');
     if(fresh.controls.some((e,i)=>selected(e)!==a.selected_ids.includes(q.payload.options[i].id))) throw new Error('最终选中集合不一致，停止提交。');
     if(fresh.submit.disabled || fresh.submit.getAttribute('aria-disabled')==='true') throw new Error('Submit 不可用。');
-    completed.add(q.signature);
+    if(completed.has(fresh.round)) throw new Error('当前这一轮已提交，等待下一题后再试。');
+    completed.add(fresh.round);
     fresh.submit.click();
     log(`已选择并点击 Submit：${a.selected_ids.join(', ')}\n${a.explanation}\n等待页面反馈…`);
     await waitNext(q,c,token);
@@ -559,10 +571,10 @@ For status answer selected_ids must be nonempty and unique. For status abstain s
       if(token!==generation) throw new Error('已停止。');
       let q;
       try { q=capture(); } catch { /* Page may be transitioning. */ }
-      if(q && q.signature!==old.signature) {
+      if(q && q.round!==old.round) {
         await sleep(600);
         const stable=capture();
-        if(stable.signature===q.signature) return;
+        if(stable.round===q.round && stable.signature===q.signature) return;
       }
       await sleep(400);
     }

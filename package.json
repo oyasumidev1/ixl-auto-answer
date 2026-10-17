@@ -1,6 +1,6 @@
 {
   "name": "ixl-auto-answer",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "private": true,
   "description": "Configurable AI-assisted IXL practice userscript",
   "license": "GPL-3.0-or-later",
