@@ -2,10 +2,10 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 let source = fs.readFileSync('ixl-auto-answer.user.js','utf8');
-source = source.replace("const host = document.createElement('div'); host.id = 'ixl-ai-choice';", "globalThis.test = {validate,buildRequest,extract,apiError}; return; const host = null;");
+source = source.replace("const host = document.createElement('div'); host.id = 'ixl-ai-choice';", "globalThis.test = {validate,buildRequest,extract,apiError,readQuestionText}; return; const host = null;");
 const sandbox = {document:{getElementById:()=>null},GM_getValue:(_,v)=>v,setTimeout,console};
 vm.runInNewContext(source,sandbox);
-const {validate,buildRequest,extract,apiError} = sandbox.test;
+const {validate,buildRequest,extract,apiError,readQuestionText} = sandbox.test;
 const p={question_id:'q1',mode:'single',options:[{id:'o1'},{id:'o2'}]};
 const a={question_id:'q1',status:'answer',selected_ids:['o1'],confidence:.95,explanation:'测试'};
 const check = obj=>validate(JSON.stringify(obj),p);
@@ -54,3 +54,20 @@ assert.ok(!error.message.includes('sk-example123'));
 assert.match(apiError({status:502,responseText:'<html><body>Bad gateway</body></html>'},config).message,/Bad gateway/);
 assert.match(apiError({status:400,responseText:''},config).message,/服务端未返回/);
 console.log('PASS: JSON validation, request formats, response parsing, error details and secret redaction. No live API calls.');
+
+// Synthetic DOM: no IXL question content or browser dependencies.
+function element(tag,children=[],kind='',weight='') {
+ return {nodeType:1,tagName:tag,style:{fontWeight:weight},childNodes:children,
+ matches(selector) {return selector.includes('script') ? tag==='SCRIPT' : (tag==='STRONG'||tag==='B'||kind==='bold');}};
+}
+const leaf=value=>({nodeType:3,nodeValue:value});
+const fixture=element('DIV',[
+ element('P',[leaf('Find the word in bold.')]),
+ element('P',[leaf('A '),element('SPAN',[element('SPAN',[leaf('bright')])],'bold'),leaf(' day.')]),
+ element('P',[element('STRONG',[element('B',[leaf('nested')])]),leaf(' '),element('SPAN',[leaf('styled')],'','700')]),
+ element('SCRIPT',[leaf('hidden code')])
+]);
+const formatted=sandbox.test.readQuestionText(fixture);
+assert.equal(formatted.question_text,'Find the word in bold. A **bright** day. **nested** **styled**');
+assert.deepEqual(Array.from(formatted.bold_texts),['bright','nested','styled']);
+console.log('PASS: CSS-only bold, semantic bold, inline font weight, nested emphasis and excluded scripts.');
