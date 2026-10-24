@@ -86,3 +86,12 @@ assert.notEqual(round({...first,stamp:'four'}),repeatId,'consecutive identical q
 const newSection=round({...first,section:{},stamp:'four'});
 assert.notEqual(newSection,round({...first,section:{},stamp:'four'}),'new question DOM starts a round');
 console.log('PASS: per-round identity, repeated questions, consecutive duplicates and unchanged-round protection.');
+
+const rewrite={question_id:'q1',mode:'rewrite',options:[]};
+const sentence={...a,selected_ids:[],answer_text:'The gardener watered the flowers.'};
+assert.equal(validate(JSON.stringify(sentence),rewrite).answer_text,sentence.answer_text);
+assert.equal(validate(JSON.stringify({...sentence,status:'abstain',answer_text:''}),rewrite).status,'abstain');
+for(const change of [{answer_text:''},{answer_text:'a\nb'},{answer_text:42},{selected_ids:['o1']},{answer_text:'x'.repeat(2001)},{status:'abstain'}]) assert.throws(()=>validate(JSON.stringify({...sentence,...change}),rewrite));
+assert.throws(()=>validate(JSON.stringify({...a}),rewrite));
+for(const protocol of ['chat','responses','anthropic']) assert.ok(JSON.stringify(buildRequest({protocol,model:'test'},rewrite).body).includes('answer_text'));
+console.log('PASS: rewrite answer schema, abstention, malformed answers and all API protocols.');
